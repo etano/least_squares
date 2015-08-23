@@ -1,4 +1,4 @@
-.PHONY: all clean least_squares
+.PHONY: all clean
 
 .DEFAULT: all
 
@@ -14,5 +14,5 @@ all: $(TARGETS)
 clean:
 	rm -f $(TARGETS)
 
-least_squares : least_squares.cpp least_squares.hpp
+$(TARGETS) : least_squares.cpp *.hpp
 	$(CXX) $(CXXFLAGS) -o $@ $<
