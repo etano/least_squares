@@ -1,66 +1,44 @@
 #include "least_squares.h"
 
-using umap = std::unordered_map<unsigned,double>;
-using umap_umap = std::unordered_map<unsigned,umap>;
+using Vec = std::vector<double>;
 
 class test{
 public:
-    static umap f_test(const umap& xs, int a){
+    static Vec f(const Vec& xs, int a){
         return std::move(xs);
     }
-    static umap_umap grad_f_test(const umap& xs, const umap& ys, int a){
-        umap_umap grad_ys;
-        for(const auto& x : xs)
-            for(const auto& y : ys){
-                if(y.first == x.first)
-                    grad_ys[x.first][y.first] = 1;
+    static std::vector<Vec> grad_f(const Vec& xs, const Vec& ys, int a){
+        std::vector<Vec> grad_ys(xs.size());
+        for(unsigned i=0; i<xs.size(); i++){
+            Vec t_grad_ys(ys.size());
+            for(unsigned j=0; j<ys.size(); j++){
+                if(i==j)
+                    t_grad_ys[j] = 1;
                 else
-                    grad_ys[x.first][y.first] = 0;
+                    t_grad_ys[j] = 0;
             }
+            grad_ys[i] = t_grad_ys;
+        }
         return std::move(grad_ys);
     }
 };
 
 int main(int argc, char** argv)
 {
-    unsigned n_par = 5;
-
-    // Parameters structs
-    double p[n_par];
-    mp_par pars[n_par];
-    for(unsigned i=0; i<n_par; i++){
-        p[i] = 1;
-        pars[i].limited[0] = true;
-        pars[i].limited[1] = true;
-        pars[i].limits[0] = -100;
-        pars[i].limits[1] = 100;
-        pars[i].side = 0;
-        pars[i].deriv_debug = true;
-    }
-
-    // Config struct
-    mp_config config;
-    config.ftol = 1.e-10;
-    config.nprint = 1;
-
-    // Result struct
-    mp_result result;
-    memset(&result,0,sizeof(result));       /* Zero results structure */
-    double perror[n_par];
-    result.xerror = perror;
-
-    // Functor
-    auto y_orig = umap{{0,-1},{1,10},{2,3},{3,5},{4,-20}};
-    std::tuple<int> args{1};
+    Vec y{-1,10,3,5,-20};
+    Vec y_err{1.e-8,1.e-8,1.e-8,1.e-8,1.e-8};
+    Vec p0{1,1,1,1,1};
+    Vec lb{-100,-100,-100,-100,-100};
+    Vec ub{100,100,100,100,100};
+    double tol = 1.e-10;
     test t;
-    least_squares::CMPFitFunctor<umap,umap,umap_umap,int> functor(y_orig,t.f_test,t.grad_f_test,args);
-
-    // Run least squares
-    int status = mpfit(least_squares::residual<decltype(functor),umap,umap,umap_umap>, y_orig.size(), n_par, p, pars, &config, (void *) &functor, &result);
-
-    printf("*** testlinfit status = %d\n", status);
-    for(unsigned i=0; i<n_par; i++)
-        std::cout << y_orig[i] << " " << p[i] << " " << perror[i] << std::endl;
+    int args0 = 10;
+    std::tuple<int> args{args0};
+    Vec p, p_err;
+    std::cout << "Finished with result: " << least_squares::fit(y,y_err,p0,p,p_err,lb,ub,tol,t.f,t.grad_f,args) << std::endl;
+    for(unsigned i=0; i<p.size(); i++){
+        std::cout << y[i] << " " << p[i] << " " << p_err[i] << std::endl;
+    }
 
     return 0;
 }
