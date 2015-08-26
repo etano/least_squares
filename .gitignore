@@ -1,3 +1,6 @@
 *.swp
 *.dat
+*.o
+*.a
+*.swo
 least_squares

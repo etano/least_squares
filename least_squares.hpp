@@ -1,6 +1,8 @@
 #ifndef LEAST_SQUARES_HPP
 #define LEAST_SQUARES_HPP
 
+#include "cmpfit/mpfit.h"
+
 namespace least_squares{
 
 template<typename Func, typename Tup, std::size_t... index>
@@ -22,6 +24,23 @@ U convert_map(const std::vector<T>& x){
     for(size_t i=0; i<x.size(); i++)
         m[i] = x[i];
     return std::move(m);
+}
+
+template<typename T, typename U>
+U convert_container(unsigned n, T* x){
+    U c(n);
+    for(size_t i=0; i<n; i++)
+        c[i] = x[i];
+    return std::move(c);
+}
+
+template<typename T, typename U>
+U convert_container(const unsigned n, const unsigned m, T** x){
+    U c;
+    for(size_t i=0; i<n; i++)
+        for(size_t j=0; j<m; j++)
+            c[i][j] = x[i][j];
+    return std::move(c);
 }
 
 template<class T, class U>
@@ -78,7 +97,7 @@ std::unordered_map<T,U> perform_least_squares(const std::unordered_map<T,U>& y, 
     unsigned n_var = x0.size();
     LeastSquares<std::unordered_map<T,U>,std::unordered_map<T,U>,std::unordered_map<T,std::unordered_map<T,U>>,Args...> lsq(y,f,grad_f,args);
     if(use_grad){
-        nlopt::opt opt(nlopt::LD_MMA, n_var);
+        nlopt::opt opt(nlopt::LN_BOBYQA, n_var);
         opt.set_min_objective(residual<decltype(lsq)>, &lsq);
         opt.set_lower_bounds(lb);
         opt.set_upper_bounds(ub);
@@ -88,7 +107,7 @@ std::unordered_map<T,U> perform_least_squares(const std::unordered_map<T,U>& y, 
         opt.optimize(x,diff);
         return std::move(convert_map<U,std::unordered_map<T,U>>(x));
     }else{
-        nlopt::opt opt(nlopt::LN_BOBYQA, n_var);
+        nlopt::opt opt(nlopt::LN_NELDERMEAD, n_var);
         opt.set_min_objective(residual<decltype(lsq)>, &lsq);
         opt.set_lower_bounds(lb);
         opt.set_upper_bounds(ub);
@@ -99,6 +118,60 @@ std::unordered_map<T,U> perform_least_squares(const std::unordered_map<T,U>& y, 
         return std::move(convert_map<U,std::unordered_map<T,U>>(x));
     }
 }
+
+/// Compute the residual
+///
+/// linear fit function
+///
+/// m - number of data points
+/// n - number of parameters
+/// p - array of fit parameters
+/// res - array of residuals to be returned
+/// dvec - array of user defined derivatives (default 0)
+/// vars - private data (struct vars_struct *)
+///
+/// RETURNS: error code (0 = success)
+template<typename FunctorType, typename T, typename U, typename V>
+int residual(int m, int n, double *p, double *res, double **dvec, void *vars){
+    FunctorType& lsq(*static_cast<FunctorType*>(vars));
+    U ps = convert_container<double,U>(n,p);
+    T ress = convert_container<double,T>(m,res);
+    V grad_ps;
+    if(dvec)
+        grad_ps = convert_container<double,V>(m,n,dvec);
+    int result = lsq(m,n,ps,ress,grad_ps);
+    for(int i=0; i<n; i++){
+        res[i] = ress[i];
+        if(!grad_ps.empty()){
+            for(int j=0; j<m; j++)
+                dvec[j][i] = grad_ps[j][i];
+        }
+    }
+    return result;
+}
+
+template<typename T, typename U, typename V, typename... Args>
+struct CMPFitFunctor{
+    /// Constructor with gradient
+    CMPFitFunctor(const T& y_orig, T (*f)(const U&,Args...)&, V (*grad_f)(const U&,const T&,Args...)&, const std::tuple<const Args&...>& args)
+        : f_(f), grad_f_(grad_f), args_(args), y_orig_(y_orig)
+    {}
+
+    int operator()(int m, int n, U& ps, T& ress, V& grad_ps){
+        auto args = std::tuple_cat(std::tuple<U>(ps),args_);
+        auto ys = invoke(f_,std::tuple_cat(std::tuple<U>(ps),args_));
+        for(const auto& y : ys)
+            ress[y.first] = y.second-y_orig_.at(y.first);
+        if(!grad_ps.empty())
+            grad_ps = invoke(grad_f_,std::tuple_cat(std::tuple<U,T>(ps,ress),args_));
+        return 0;
+    }
+
+    T (*f_)(const U&,Args...); ///> The function which to to be fitted
+    V (*grad_f_)(const U&,const T&,Args...); ///> The gradient of the function which to to be fitted
+    const std::tuple<const Args...>& args_; /// Additional arguments
+    const T& y_orig_; ///> Original y values
+};
 
 }
 
