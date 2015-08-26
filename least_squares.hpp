@@ -111,17 +111,31 @@ int fit(const VecT& y, const VecT& y_err, const VecT& p0, VecT& ps, VecT& p_errs
     mp_par pars[n_par];
     for(unsigned i=0; i<n_par; i++){
         p[i] = p0[i];
+        pars[i].fixed = false;
         pars[i].limited[0] = true;
         pars[i].limited[1] = true;
         pars[i].limits[0] = lb[i];
         pars[i].limits[1] = ub[i];
-        //pars[i].deriv_debug = true;
+        pars[i].parname = "";
+        pars[i].step = 0;
+        pars[i].relstep = 0;
+        pars[i].side = 0;
+        pars[i].deriv_debug = false;
     }
 
     // Config struct
     mp_config config;
     config.ftol = tol;
     config.nprint = 1;
+    config.xtol = 0;
+    config.gtol = 0;
+    config.stepfactor = 0;
+    config.epsfcn = 0;
+    config.maxiter = 0;
+    config.douserscale = 0;
+    config.covtol = 0;
+    config.nofinitecheck = 0;
+    config.maxfev = 0;
 
     // Result struct
     mp_result result;

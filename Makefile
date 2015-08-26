@@ -4,8 +4,7 @@
 
 CXX = g++
 
-CMPFITFLAGS = -L./cmpfit -lmpfit -lm
-CXXFLAGS = -Wall -ansi -pedantic -std=c++14 -O3 -funroll-loops -pipe $(NLOPTFLAGS) $(CMPFITFLAGS)
+CXXFLAGS = -Wall -ansi -pedantic -std=c++14 -O3 -funroll-loops -pipe $(CMPFITFLAGS)
 
 TARGETS = least_squares
 
@@ -17,7 +16,10 @@ cmpfit:
 all: $(TARGETS)
 
 clean:
-	rm -f $(TARGETS)
+	rm -f $(TARGETS) main.o
 
-$(TARGETS) : main.cpp *.hpp
-	$(CXX) $(CXXFLAGS) -o $@ $<
+main.o : main.cpp *.hpp
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(TARGETS) : main.o cmpfit/mpfit.o
+	$(CXX) $(CXXFLAGS) -o $@ main.o cmpfit/mpfit.o

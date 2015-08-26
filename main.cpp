@@ -34,7 +34,7 @@ int main(int argc, char** argv)
     test t;
     int args0 = 10;
     std::tuple<int> args{args0};
-    Vec p, p_err;
+    Vec p(p0), p_err(p0);
     std::cout << "Finished with result: " << least_squares::fit(y,y_err,p0,p,p_err,lb,ub,tol,t.f,t.grad_f,args) << std::endl;
     for(unsigned i=0; i<p.size(); i++){
         std::cout << y[i] << " " << p[i] << " " << p_err[i] << std::endl;
