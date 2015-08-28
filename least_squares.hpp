@@ -49,7 +49,7 @@ U convert_container(const unsigned n, const unsigned m, T** x){
 ///
 /// RETURNS: error code (0 = success)
 template<typename FunctorType, typename T, typename U, typename V>
-int residual(int m, int n, double *p, double *res, double **dvec, void *vars){
+int residual_cmpfit(int m, int n, double *p, double *res, double **dvec, void *vars){
     FunctorType& lsq(*static_cast<FunctorType*>(vars));
     U ps = convert_container<double,U>(n,p);
     T ress = convert_container<double,T>(m,res);
@@ -103,7 +103,7 @@ struct CMPFitFunctor{
 };
 
 template<typename VecT, typename T, typename F, typename GradF, typename... Args>
-int fit(const VecT& y, const VecT& y_err, const VecT& p0, VecT& ps, VecT& p_errs, const VecT& lb, const VecT& ub, const T& tol, F f, GradF grad_f, const std::tuple<Args...>& args, bool use_grad=false){
+int fit_cmpfit(const VecT& y, const VecT& y_err, const VecT& p0, VecT& ps, VecT& p_errs, const VecT& lb, const VecT& ub, const T& tol, F f, GradF grad_f, const std::tuple<Args...>& args, bool use_grad=false){
     // Problem size
     unsigned n_y = y.size();
     unsigned n_par = p0.size();
@@ -152,7 +152,7 @@ int fit(const VecT& y, const VecT& y_err, const VecT& p0, VecT& ps, VecT& p_errs
     CMPFitFunctor<VecT,VecT,std::vector<VecT>,Args...> functor(y,y_err,f,grad_f,args);
 
     // Run least squares
-    int status = mpfit(least_squares::residual<decltype(functor),VecT,VecT,std::vector<VecT>>,n_y,n_par,p,pars,&config,(void *) &functor,&result);
+    int status = mpfit(least_squares::residual_cmpfit<decltype(functor),VecT,VecT,std::vector<VecT>>,n_y,n_par,p,pars,&config,(void *) &functor,&result);
 
     // Set parameters
     ps.resize(p0.size());
@@ -163,6 +163,75 @@ int fit(const VecT& y, const VecT& y_err, const VecT& p0, VecT& ps, VecT& p_errs
     }
 
     return status;
+}
+
+template<typename T, typename U, typename V, typename... Args>
+class NLOptFunctor{
+public:
+    /// Constructor with gradient
+    NLOptFunctor(const T& y_orig, T (*f)(const U&,Args...)&, V (*grad_f)(const U&,const T&,Args...)&, const std::tuple<const Args&...>& args)
+        : f_(f), grad_f_(grad_f), args_(args), y_orig_(y_orig)
+    {}
+
+    /// Compute the residual
+    double get_residual(const std::vector<double>& x, std::vector<double>& grad){
+        auto xs = x;
+        auto ys = invoke(f_,std::tuple_cat(std::tuple<U>(xs),args_));
+        double tot(0);
+        for(const auto& y : ys)
+            tot += pow(y.second-y_orig_.at(y.first),2);
+        double r = tot;
+        if(!grad.empty()){
+            auto grad_ys = invoke(grad_f_,std::tuple_cat(std::tuple<U,T>(xs,ys),args_));
+            for(unsigned i=0; i<grad.size(); i++)
+                grad[i] = 0;
+            for(const auto& y : ys){
+                auto diff = y.second-y_orig_.at(y.first);
+                for(unsigned i=0; i<grad.size(); i++)
+                    grad[i] += 2*diff*grad_ys.at(y.first).at(i);
+            }
+        }
+        return r;
+    }
+private:
+    T (*f_)(const U&,Args...); ///> The function which to to be fitted
+    V (*grad_f_)(const U&,const T&,Args...); ///> The gradient of the function which to to be fitted
+    const std::tuple<const Args&...>& args_; /// Additional arguments
+    const T& y_orig_; ///> Original y values
+    const T& y_err_orig_; ///> Original y error values
+};
+
+template<typename T>
+double residual_nlopt(const std::vector<double>& x, std::vector<double>& grad, void* f_data){
+    T* lsq = static_cast<T*>(f_data);
+    return lsq->get_residual(x,grad);
+}
+
+template<typename VecT, typename T, typename F, typename GradF, typename... Args>
+T fit_nlopt(const VecT& y, const VecT& y_err, const VecT& p0, VecT& ps, VecT& p_errs, const VecT& lb, const VecT& ub, const T& tol, F f, GradF grad_f, const std::tuple<Args...>& args, bool use_grad=false){
+    unsigned n_var = p0.size();
+    NLOptFunctor<VecT,VecT,std::vector<VecT>,Args...> functor(y,y_err,f,grad_f,args);
+    if(use_grad){
+        nlopt::opt opt(nlopt::LD_MMA, n_var);
+        opt.set_min_objective(residual_nlopt<decltype(functor)>, &functor);
+        opt.set_lower_bounds(lb);
+        opt.set_upper_bounds(ub);
+        opt.set_ftol_rel(tol);
+        ps = p0;
+        T diff;
+        opt.optimize(ps,diff);
+        return diff;
+    }else{
+        nlopt::opt opt(nlopt::LN_BOBYQA, n_var);
+        opt.set_min_objective(residual_nlopt<decltype(functor)>, &functor);
+        opt.set_lower_bounds(lb);
+        opt.set_upper_bounds(ub);
+        opt.set_ftol_rel(tol);
+        ps = p0;
+        T diff;
+        opt.optimize(ps,diff);
+        return diff;
+    }
 }
 
 }
