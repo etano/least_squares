@@ -77,17 +77,19 @@ struct CMPFitFunctor{
     /// Sets residual and gradients of residuals with respect to the parameters
     int operator()(U& ps, T& ress, V& grad_ps){
         T ys(invoke(f_,std::tuple_cat(std::tuple<U>(ps),args_)));
+        double tot = 0;
         for(unsigned i=0; i<ys.size(); i++){
-            ress[i] = ys.at(i)-y_orig_.at(i);
+            ress[i] = ys[i]-y_orig_[i];
+            tot += ress[i]*ress[i];
             if(y_err_orig_.at(i)!=0)
-                ress[i] /= y_err_orig_.at(i);
+                ress[i] /= 1.;//y_err_orig_.at(i);
         }
         if(!grad_ps.empty()){
             grad_ps = invoke(grad_f_,std::tuple_cat(std::tuple<U,T>(ps,ress),args_));
             for(unsigned i=0; i<ys.size(); i++){
                 if(y_err_orig_.at(i)!=0)
                 for(unsigned j=0; j<ps.size(); j++)
-                    grad_ps[i][j] /= y_err_orig_.at(i);
+                    grad_ps[i][j] /= 1.;//y_err_orig_.at(i);
             }
         }
         return 0;
@@ -101,7 +103,7 @@ struct CMPFitFunctor{
 };
 
 template<typename VecT, typename T, typename F, typename GradF, typename... Args>
-int fit(const VecT& y, const VecT& y_err, const VecT& p0, VecT& ps, VecT& p_errs, const VecT& lb, const VecT& ub, const T& tol, F f, GradF grad_f, const std::tuple<Args...>& args){
+int fit(const VecT& y, const VecT& y_err, const VecT& p0, VecT& ps, VecT& p_errs, const VecT& lb, const VecT& ub, const T& tol, F f, GradF grad_f, const std::tuple<Args...>& args, bool use_grad=false){
     // Problem size
     unsigned n_y = y.size();
     unsigned n_par = p0.size();
@@ -117,7 +119,10 @@ int fit(const VecT& y, const VecT& y_err, const VecT& p0, VecT& ps, VecT& p_errs
         pars[i].limits[0] = lb[i];
         pars[i].limits[1] = ub[i];
         pars[i].parname = "";
-        pars[i].step = 0;
+        if(use_grad)
+            pars[i].step = 3;
+        else
+            pars[i].step = 0;
         pars[i].relstep = 0;
         pars[i].side = 0;
         pars[i].deriv_debug = false;
@@ -125,13 +130,13 @@ int fit(const VecT& y, const VecT& y_err, const VecT& p0, VecT& ps, VecT& p_errs
 
     // Config struct
     mp_config config;
-    config.ftol = tol;
+    config.ftol = 0;
     config.nprint = 1;
     config.xtol = 0;
     config.gtol = 0;
     config.stepfactor = 0;
     config.epsfcn = 0;
-    config.maxiter = 0;
+    config.maxiter = 100000;
     config.douserscale = 0;
     config.covtol = 0;
     config.nofinitecheck = 0;

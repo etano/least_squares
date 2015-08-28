@@ -13,8 +13,6 @@ all: cmpfit $(TARGETS)
 cmpfit:
 	$(MAKE) -C cmpfit
 
-all: $(TARGETS)
-
 clean:
 	rm -f $(TARGETS) main.o
 
