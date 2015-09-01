@@ -4,16 +4,6 @@ using Vec = std::vector<double>;
 
 class test{
 public:
-    /// Calculate Pls from inv model with parameters ps
-    static Vec calc_Pls_from_Pl_inv_ps(const Vec& ps, int N){
-        Vec Pls(N);
-        for(unsigned l=0; l<Pls.size(); l++){
-            Pls[l] = 1;
-            for(unsigned i=0; i<ps.size(); i++)
-                Pls[l] += ps[i]/pow(l+1,i+1);
-        }
-        return std::move(Pls);
-    }
     /// Calculate Pls from exponential model with parameters ps
     static Vec calc_Pls_from_Pl_exp_ps(const Vec& ps, int N){
         Vec Pls(N);
@@ -24,9 +14,6 @@ public:
             Pls[l] = 1 + ps[0]*exp(-tot);
         }
         return std::move(Pls);
-    }
-    static Vec f(const Vec& xs, int a){
-        return std::move(xs);
     }
     /// Calculate Grad Pls from exponential model with parameters ps
     static std::vector<Vec> calc_grad_Pls_from_Pl_exp_ps(const Vec& ps, const Vec& Pls, int N){
@@ -42,20 +29,6 @@ public:
         }
         return std::move(grad_Pls_ps);
     }
-    static std::vector<Vec> grad_f(const Vec& xs, const Vec& ys, int a){
-        std::vector<Vec> grad_ys(xs.size());
-        for(unsigned i=0; i<xs.size(); i++){
-            Vec t_grad_ys(ys.size());
-            for(unsigned j=0; j<ys.size(); j++){
-                if(i==j)
-                    t_grad_ys[j] = 1;
-                else
-                    t_grad_ys[j] = 0;
-            }
-            grad_ys[i] = t_grad_ys;
-        }
-        return std::move(grad_ys);
-    }
 };
 
 int main(int argc, char** argv)
@@ -70,36 +43,11 @@ int main(int argc, char** argv)
     int args0 = y.size();
     std::tuple<int> args{args0};
     Vec p(p0), p_err(p0);
-    least_squares::fit_cmpfit(y,y_err,p0,p,p_err,lb,ub,tol,t.calc_Pls_from_Pl_exp_ps,t.calc_grad_Pls_from_Pl_exp_ps,args,true);
-    for(unsigned i=0; i<p.size(); i++){
-        std::cout << p0[i] << " " << p[i] << " " << p_err[i] << std::endl;
-    }
+    least_squares::fit_ceres(y,y_err,p0,p,p_err,lb,ub,tol,t.calc_Pls_from_Pl_exp_ps,t.calc_grad_Pls_from_Pl_exp_ps,args,true);
+    for(unsigned i=0; i<p.size(); i++)
+        std::cout << p[i] << " " << p_err[i] << std::endl;
     auto Pls = t.calc_Pls_from_Pl_exp_ps(p,y.size());
     double tot = 0;
-    for(unsigned l=0; l<Pls.size(); l++){
-        std::cout << l << " " << Pls[l] << " " << y[l] << std::endl;
-        tot += pow(Pls[l]-y[l],2);
-    }
-    std::cout << tot << std::endl;
-
-    least_squares::fit_nlopt(y,y_err,p0,p,p_err,lb,ub,tol,t.calc_Pls_from_Pl_exp_ps,t.calc_grad_Pls_from_Pl_exp_ps,args,true);
-    for(unsigned i=0; i<p.size(); i++){
-        std::cout << p[i] << " " << p_err[i] << std::endl;
-    }
-    Pls = t.calc_Pls_from_Pl_exp_ps(p,y.size());
-    tot = 0;
-    for(unsigned l=0; l<Pls.size(); l++){
-        std::cout << l << " " << Pls[l] << " " << y[l] << std::endl;
-        tot += pow(Pls[l]-y[l],2);
-    }
-    std::cout << tot << std::endl;
-
-    least_squares::fit_ceres(y,y_err,p0,p,p_err,lb,ub,tol,t.calc_Pls_from_Pl_exp_ps,t.calc_grad_Pls_from_Pl_exp_ps,args,true);
-    for(unsigned i=0; i<p.size(); i++){
-        std::cout << p[i] << " " << p_err[i] << std::endl;
-    }
-    Pls = t.calc_Pls_from_Pl_exp_ps(p,y.size());
-    tot = 0;
     for(unsigned l=0; l<Pls.size(); l++){
         std::cout << l << " " << Pls[l] << " " << y[l] << std::endl;
         tot += pow(Pls[l]-y[l],2);

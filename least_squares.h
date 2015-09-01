@@ -6,7 +6,6 @@
 #include <vector>
 #include <unordered_map>
 #include <iostream>
-#include <nlopt.hpp>
 #include <random>
 #include "ceres/ceres.h"
 #include "glog/logging.h"
