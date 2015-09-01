@@ -70,7 +70,7 @@ int residual_cmpfit(int m, int n, double *p, double *res, double **dvec, void *v
 template<typename T, typename U, typename V, typename... Args>
 struct CMPFitFunctor{
     /// Constructor with gradient
-    CMPFitFunctor(const T& y_orig, const T& y_err_orig, T (*f)(const U&,Args...)&, V (*grad_f)(const U&,const T&,Args...)&, const std::tuple<Args...>& args)
+    CMPFitFunctor(const T& y_orig, const T& y_err_orig, T (*f)(const U&,Args...), V (*grad_f)(const U&,const T&,Args...), const std::tuple<Args...>& args)
         : f_(f), grad_f_(grad_f), args_(args), y_orig_(y_orig), y_err_orig_(y_err_orig)
     {}
 
@@ -103,100 +103,116 @@ struct CMPFitFunctor{
 };
 
 template<typename VecT, typename T, typename F, typename GradF, typename... Args>
-int fit_cmpfit(const VecT& y, const VecT& y_err, const VecT& p0, VecT& ps, VecT& p_errs, const VecT& lb, const VecT& ub, const T& tol, F f, GradF grad_f, const std::tuple<Args...>& args, bool use_grad=false){
+T fit_cmpfit(const VecT& y, const VecT& y_err, const VecT& p0, VecT& ps, VecT& p_errs, const VecT& lb, const VecT& ub, const T& tol, F f, GradF grad_f, const std::tuple<Args...>& args, bool use_grad=false){
     // Problem size
     unsigned n_y = y.size();
     unsigned n_par = p0.size();
+    unsigned n_restart = 100;
+    std::default_random_engine generator;
+    std::vector<std::uniform_real_distribution<T>> dists;
+    for(unsigned i=0; i<n_par; i++)
+        dists.push_back(std::uniform_real_distribution<T>(lb[i],ub[i]));
+    T diff = 1e100;
+    int best_status = 0;
+    for(unsigned i_restart=0; i_restart<n_restart; i_restart++){
+        // Parameters structs
+        double p[n_par];
+        mp_par pars[n_par];
+        for(unsigned i=0; i<n_par; i++){
+            p[i] = dists[i](generator); // p0[i];
+            pars[i].fixed = false;
+            pars[i].limited[0] = true;
+            pars[i].limited[1] = true;
+            pars[i].limits[0] = lb[i];
+            pars[i].limits[1] = ub[i];
+            pars[i].parname = "";
+            if(use_grad)
+                pars[i].step = 3;
+            else
+                pars[i].step = 0;
+            pars[i].relstep = 0;
+            pars[i].side = 0;
+            pars[i].deriv_debug = false;
+        }
 
-    // Parameters structs
-    double p[n_par];
-    mp_par pars[n_par];
-    for(unsigned i=0; i<n_par; i++){
-        p[i] = p0[i];
-        pars[i].fixed = false;
-        pars[i].limited[0] = true;
-        pars[i].limited[1] = true;
-        pars[i].limits[0] = lb[i];
-        pars[i].limits[1] = ub[i];
-        pars[i].parname = "";
-        if(use_grad)
-            pars[i].step = 3;
-        else
-            pars[i].step = 0;
-        pars[i].relstep = 0;
-        pars[i].side = 0;
-        pars[i].deriv_debug = false;
+        // Config struct
+        mp_config config;
+        config.ftol = 0;
+        config.nprint = 1;
+        config.xtol = 0;
+        config.gtol = 0;
+        config.stepfactor = 0;
+        config.epsfcn = 0;
+        config.maxiter = 100000;
+        config.douserscale = 0;
+        config.covtol = 0;
+        config.nofinitecheck = 0;
+        config.maxfev = 0;
+
+        // Result struct
+        mp_result result;
+        memset(&result,0,sizeof(result));
+        double perror[n_par];
+        result.xerror = perror;
+
+        // Functor
+        CMPFitFunctor<VecT,VecT,std::vector<VecT>,Args...> functor(y,y_err,f,grad_f,args);
+
+        // Run least squares
+        int status = mpfit(least_squares::residual_cmpfit<decltype(functor),VecT,VecT,std::vector<VecT>>,n_y,n_par,p,pars,&config,(void *) &functor,&result);
+
+
+        // Record norm
+        if(result.bestnorm < diff){
+            diff = result.bestnorm;
+            best_status = status;
+            // Set parameters
+            ps.resize(p0.size());
+            p_errs.resize(p0.size());
+            for(unsigned i=0; i<n_par; i++){
+                ps[i] = p[i];
+                p_errs[i] = perror[i];
+            }
+        }
     }
 
-    // Config struct
-    mp_config config;
-    config.ftol = 0;
-    config.nprint = 1;
-    config.xtol = 0;
-    config.gtol = 0;
-    config.stepfactor = 0;
-    config.epsfcn = 0;
-    config.maxiter = 100000;
-    config.douserscale = 0;
-    config.covtol = 0;
-    config.nofinitecheck = 0;
-    config.maxfev = 0;
+    std::cout << "Finished with status " << best_status << " and chi^2 " << diff << std::endl;
 
-    // Result struct
-    mp_result result;
-    memset(&result,0,sizeof(result));
-    double perror[n_par];
-    result.xerror = perror;
-
-    // Functor
-    CMPFitFunctor<VecT,VecT,std::vector<VecT>,Args...> functor(y,y_err,f,grad_f,args);
-
-    // Run least squares
-    int status = mpfit(least_squares::residual_cmpfit<decltype(functor),VecT,VecT,std::vector<VecT>>,n_y,n_par,p,pars,&config,(void *) &functor,&result);
-
-    // Set parameters
-    ps.resize(p0.size());
-    p_errs.resize(p0.size());
-    for(unsigned i=0; i<n_par; i++){
-        ps[i] = p[i];
-        p_errs[i] = perror[i];
-    }
-
-    return status;
+    return diff;
 }
 
 template<typename T, typename U, typename V, typename... Args>
 class NLOptFunctor{
 public:
     /// Constructor with gradient
-    NLOptFunctor(const T& y_orig, T (*f)(const U&,Args...)&, V (*grad_f)(const U&,const T&,Args...)&, const std::tuple<const Args&...>& args)
-        : f_(f), grad_f_(grad_f), args_(args), y_orig_(y_orig)
+    NLOptFunctor(const T& y_orig, const T& y_err_orig, T (*f)(const U&,Args...), V (*grad_f)(const U&,const T&,Args...), const std::tuple<Args...>& args)
+        : f_(f), grad_f_(grad_f), args_(args), y_orig_(y_orig), y_err_orig_(y_err_orig)
     {}
 
     /// Compute the residual
-    double get_residual(const std::vector<double>& x, std::vector<double>& grad){
+    double calc_residual(const std::vector<double>& x, std::vector<double>& grad){
         auto xs = x;
         auto ys = invoke(f_,std::tuple_cat(std::tuple<U>(xs),args_));
         double tot(0);
-        for(const auto& y : ys)
-            tot += pow(y.second-y_orig_.at(y.first),2);
+        for(unsigned i=0; i<ys.size(); i++)
+            tot += pow((ys[i]-y_orig_[i]),2);///y_err_orig_[i],2);
         double r = tot;
         if(!grad.empty()){
             auto grad_ys = invoke(grad_f_,std::tuple_cat(std::tuple<U,T>(xs,ys),args_));
-            for(unsigned i=0; i<grad.size(); i++)
+            for(unsigned i=0; i<xs.size(); i++)
                 grad[i] = 0;
-            for(const auto& y : ys){
-                auto diff = y.second-y_orig_.at(y.first);
-                for(unsigned i=0; i<grad.size(); i++)
-                    grad[i] += 2*diff*grad_ys.at(y.first).at(i);
+            for(unsigned i=0; i<ys.size(); i++){
+                auto diff = ys[i]-y_orig_[i];
+                for(unsigned j=0; j<xs.size(); j++)
+                    grad[j] += 2*diff*(grad_ys[i][j]);///y_err_orig_[i]);
             }
         }
         return r;
     }
 private:
-    T (*f_)(const U&,Args...); ///> The function which to to be fitted
-    V (*grad_f_)(const U&,const T&,Args...); ///> The gradient of the function which to to be fitted
-    const std::tuple<const Args&...>& args_; /// Additional arguments
+    T (*f_)(const U&,Args...); ///> The fitted function
+    V (*grad_f_)(const U&,const T&,Args...); ///> The gradient of the fitted function
+    const std::tuple<Args...>& args_; /// Additional arguments for the fitted function
     const T& y_orig_; ///> Original y values
     const T& y_err_orig_; ///> Original y error values
 };
@@ -204,34 +220,85 @@ private:
 template<typename T>
 double residual_nlopt(const std::vector<double>& x, std::vector<double>& grad, void* f_data){
     T* lsq = static_cast<T*>(f_data);
-    return lsq->get_residual(x,grad);
+    return lsq->calc_residual(x,grad);
 }
 
 template<typename VecT, typename T, typename F, typename GradF, typename... Args>
 T fit_nlopt(const VecT& y, const VecT& y_err, const VecT& p0, VecT& ps, VecT& p_errs, const VecT& lb, const VecT& ub, const T& tol, F f, GradF grad_f, const std::tuple<Args...>& args, bool use_grad=false){
     unsigned n_var = p0.size();
     NLOptFunctor<VecT,VecT,std::vector<VecT>,Args...> functor(y,y_err,f,grad_f,args);
-    if(use_grad){
-        nlopt::opt opt(nlopt::LD_MMA, n_var);
-        opt.set_min_objective(residual_nlopt<decltype(functor)>, &functor);
-        opt.set_lower_bounds(lb);
-        opt.set_upper_bounds(ub);
-        opt.set_ftol_rel(tol);
-        ps = p0;
-        T diff;
-        opt.optimize(ps,diff);
-        return diff;
-    }else{
-        nlopt::opt opt(nlopt::LN_BOBYQA, n_var);
-        opt.set_min_objective(residual_nlopt<decltype(functor)>, &functor);
-        opt.set_lower_bounds(lb);
-        opt.set_upper_bounds(ub);
-        opt.set_ftol_rel(tol);
-        ps = p0;
-        T diff;
-        opt.optimize(ps,diff);
-        return diff;
+    nlopt::opt opt(nlopt::LD_MMA, n_var);
+    opt.set_min_objective(residual_nlopt<decltype(functor)>, &functor);
+    opt.set_lower_bounds(lb);
+    opt.set_upper_bounds(ub);
+    opt.set_ftol_rel(tol);
+    ps = p0;
+    T diff;
+    int status = opt.optimize(ps,diff);
+    std::cout << "Finished with status " << status << " and chi^2 " << diff << std::endl;
+    return diff;
+}
+
+template<typename T, typename U, typename... Args>
+class CeresFunctor{
+public:
+    /// Constructor with gradient
+    CeresFunctor(const T& y_orig, const T& y_err_orig, const unsigned n_par, T (*f)(const U&,Args...), const std::tuple<Args...>& args)
+        : f_(f), args_(args), y_orig_(y_orig), y_err_orig_(y_err_orig), n_par_(n_par)
+    {}
+
+    /// Sets residual and gradients of residuals with respect to the parameters
+    template <typename CT>
+    bool operator()(CT const* const* parameters, CT* residuals) const {
+        std::vector<double> ps;
+        for(unsigned i=0; i<n_par_; i++)
+            ps.push_back(parameters[0][i]);
+        T ys(invoke(f_,std::tuple_cat(std::tuple<U>(ps),args_)));
+        for(unsigned i=0; i<y_orig_.size(); i++)
+            residuals[i] = CT(y_orig_[i]) - CT(ys[i]);
+        return true;
     }
+
+private:
+    T (*f_)(const U&,Args...); ///> The fitted function
+    const std::tuple<Args...>& args_; /// Additional arguments for the fitted function
+    const T& y_orig_; ///> Original y values
+    const T& y_err_orig_; ///> Original y error values
+    const unsigned n_par_; ///> Number of parameters
+};
+
+template<typename VecT, typename T, typename F, typename GradF, typename... Args>
+T fit_ceres(const VecT& y, const VecT& y_err, const VecT& p0, VecT& ps, VecT& p_errs, const VecT& lb, const VecT& ub, const T& tol, F f, GradF grad_f, const std::tuple<Args...>& args, bool use_grad=false){
+    int n_par = p0.size();
+    double p[n_par];
+    for(int i=0; i<n_par; i++)
+       p[i] = p0[i];
+
+    ceres::Problem problem;
+    problem.AddParameterBlock(p,n_par);
+
+    ceres::DynamicNumericDiffCostFunction<CeresFunctor<VecT,VecT,Args...>,ceres::CENTRAL> *cost_function =
+        new ceres::DynamicNumericDiffCostFunction<CeresFunctor<VecT,VecT,Args...>,ceres::CENTRAL>(
+                new CeresFunctor<VecT,VecT,Args...>(y,y_err,n_par,f,args));
+    cost_function->AddParameterBlock(n_par);
+    cost_function->SetNumResiduals(y.size());
+
+    problem.AddResidualBlock(cost_function,NULL,p);
+    ceres::Solver::Options options;
+    options.max_num_iterations = 100;
+    options.minimizer_progress_to_stdout = true;
+    ceres::Solver::Summary summary;
+    ceres::Solve(options, &problem, &summary);
+    std::cout << summary.BriefReport() << "\n";
+    std::cout << "Initial a: " << p0[0] << " b: " << p0[1] << " c: " << p0[2] << "\n";
+    std::cout << "Final   a: " << p[0] << " b: " << p[1] << " c: " << p[2] << "\n";
+    ps.resize(n_par);
+    p_errs.resize(n_par);
+    for(int i=0; i<n_par; i++){
+        ps[i] = p[i];
+        p_errs[i] = 0.;
+    }
+    return 0;
 }
 
 }
