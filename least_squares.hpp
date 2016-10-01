@@ -63,14 +63,19 @@ public:
         for(unsigned i=0; i<n_par_; i++)
             ps.push_back(parameters[0][i]);
         T ys(invoke(f_,std::tuple_cat(std::tuple<U>(ps),args_)));
-        for(unsigned i=0; i<y_orig_.size(); i++)
+        for(unsigned i=0; i<y_orig_.size(); i++){
             residuals[i] = y_orig_[i] - ys[i];
+            if(!std::isnan(y_err_orig_[i]) && (y_err_orig_[i] > 0))
+                residuals[i] /= y_err_orig_[i];
+        }
         if(jacobians != NULL){
             if(jacobians[0] != NULL){
                 auto grad_ys = invoke(grad_f_,std::tuple_cat(std::tuple<U,T>(ps,ys),args_));
                 for(unsigned i=0; i<n_par_; i++){
                     for(unsigned j=0; j<ys.size(); j++){
                         jacobians[0][j*n_par_ + i] = -grad_ys[j][i];
+                        if(!std::isnan(y_err_orig_[i]) && (y_err_orig_[i] > 0))
+                            jacobians[0][j*n_par_ + i] /= y_err_orig_[i];
                     }
                 }
             }
@@ -113,7 +118,7 @@ T fit_ceres(const VecT& y, const VecT& y_err, const VecT& p0, VecT& ps, VecT& p_
     }
     ceres::Solver::Options options;
     options.max_num_iterations = 10000;
-    options.parameter_tolerance = tol;
+    options.function_tolerance = tol;
     options.check_gradients = false;
     options.minimizer_progress_to_stdout = true;
     ceres::Solver::Summary summary;
